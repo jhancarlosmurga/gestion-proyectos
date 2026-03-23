@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoreo de Servidor Ubuntu</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+            --primary: #3b82f6;
+
+            --status-ok: #10b981;
+            --status-ok-bg: rgba(16, 185, 129, 0.2);
+            --status-alert: #f59e0b;
+            --status-alert-bg: rgba(245, 158, 11, 0.2);
+            --status-critical: #ef4444;
+            --status-critical-bg: rgba(239, 68, 68, 0.2);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 24px;
+            font-size: 16px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            margin-top: 4px;
+        }
+
+        .status-badge {
+            padding: 8px 16px;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .status-badge.ok {
+            background: var(--status-ok-bg);
+            color: var(--status-ok);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .status-badge.alert {
+            background: var(--status-alert-bg);
+            color: var(--status-alert);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .status-badge.critical {
+            background: var(--status-critical-bg);
+            color: var(--status-critical);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        .status-badge.ok .status-indicator {
+            background: var(--status-ok);
+        }
+
+        .status-badge.alert .status-indicator {
+            background: var(--status-alert);
+        }
+
+        .status-badge.critical .status-indicator {
+            background: var(--status-critical);
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .card-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 8px;
+            background-color: rgba(255, 255, 255, 0.05);
+            border-radius: 9999px;
+            overflow: hidden;
+            margin-top: auto;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .progress-bar {
+            height: 100%;
+            border-radius: 9999px;
+            transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s ease;
+        }
+
+        .chart-container {
+            background-color: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 24px;
+            height: 400px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .table-container {
+            background-color: var(--card-bg);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            overflow-x: auto;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            background-color: rgba(0, 0, 0, 0.2);
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 16px 24px;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        td {
+            padding: 16px 24px;
+            font-size: 0.875rem;
+            border-bottom: 1px solid var(--border-color);
+            white-space: nowrap;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+
+        .message-banner {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 24px;
+            color: var(--text-muted);
+            display: none;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .message-banner h2 {
+            margin-bottom: 8px;
+            color: var(--text-main);
+        }
+
+        .message-banner.error {
+            border-color: rgba(239, 68, 68, 0.5);
+            background-color: rgba(239, 68, 68, 0.05);
+        }
+
+        #last-refresh {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            text-align: center;
+            margin-top: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .refresh-icon {
+            width: 16px;
+            height: 16px;
+            animation: none;
+        }
+
+        .refresh-icon.spinning {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* SVG Icons */
+        .icon {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            body {
+                padding: 16px;
+            }
+
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .chart-container {
+                height: 300px;
+                padding: 16px;
+            }
+
+            td,
+            th {
+                padding: 12px 16px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Monitoreo de Servidor Ubuntu</h1>
+                <p>Dashboard de Infraestructura TI</p>
+            </div>
+            <div>
+                <div id="global-status" class="status-badge ok" style="display: none;">
+                    <div class="status-indicator"></div>
+                    <span id="global-status-text">Cargando...</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="message-container" class="message-banner">
+            <svg class="icon" style="width: 48px; height: 48px; margin: 0 auto 16px; opacity: 0.5;" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <h2 id="message-title">Obteniendo métricas...</h2>
+            <p id="message-text">Conectando con el endpoint</p>
+        </div>
+
+        <div id="dashboard-content" style="display: none;">
+            <div class="dashboard-grid">
+                <!-- Server Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span>Servidor</span>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                            <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                            <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                        </svg>
+                    </div>
+                    <div class="card-value" id="kpi-server">--</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);" id="kpi-date">Última lectura: --</div>
+                </div>
+
+                <!-- CPU Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span>CPU</span>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+                            <rect x="9" y="9" width="6" height="6"></rect>
+                            <line x1="9" y1="1" x2="9" y2="4"></line>
+                            <line x1="15" y1="1" x2="15" y2="4"></line>
+                            <line x1="9" y1="20" x2="9" y2="23"></line>
+                            <line x1="15" y1="20" x2="15" y2="23"></line>
+                            <line x1="20" y1="9" x2="23" y2="9"></line>
+                            <line x1="20" y1="14" x2="23" y2="14"></line>
+                            <line x1="1" y1="9" x2="4" y2="9"></line>
+                            <line x1="1" y1="14" x2="4" y2="14"></line>
+                        </svg>
+                    </div>
+                    <div class="card-value" id="kpi-cpu">--</div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="bar-cpu" style="width: 0%; background-color: var(--status-ok);">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RAM Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span>RAM</span>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <rect x="2" y="6" width="20" height="12" rx="2" ry="2"></rect>
+                            <line x1="6" y1="6" x2="6" y2="6.01"></line>
+                            <line x1="10" y1="6" x2="10" y2="6.01"></line>
+                            <line x1="14" y1="6" x2="14" y2="6.01"></line>
+                            <line x1="18" y1="6" x2="18" y2="6.01"></line>
+                            <line x1="6" y1="18" x2="6" y2="18.01"></line>
+                            <line x1="10" y1="18" x2="10" y2="18.01"></line>
+                            <line x1="14" y1="18" x2="14" y2="18.01"></line>
+                            <line x1="18" y1="18" x2="18" y2="18.01"></line>
+                        </svg>
+                    </div>
+                    <div class="card-value" id="kpi-ram">--</div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="bar-ram" style="width: 0%; background-color: var(--status-ok);">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Disk Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span>Disco</span>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                        </svg>
+                    </div>
+                    <div class="card-value" id="kpi-disk">--</div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="bar-disk" style="width: 0%; background-color: var(--status-ok);">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Uptime Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span>Uptime</span>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                    </div>
+                    <div class="card-value" id="kpi-uptime" style="font-size: 1.25rem; font-weight: 500;">--</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: auto;">Tiempo sistema activo
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <canvas id="historyChart"></canvas>
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Servidor</th>
+                            <th>CPU</th>
+                            <th>RAM</th>
+                            <th>Disco</th>
+                            <th>Uptime</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body">
+                        <!-- Data will be injected here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div id="last-refresh">
+                <svg class="icon refresh-icon" id="refresh-spinner" viewBox="0 0 24 24">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                Siguiente actualización en <span id="countdown"
+                    style="font-weight: 600; color: var(--text-main); min-width: 20px;">60</span>s
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // =========================================================================
+        // CONFIGURACIÓN DE ENDPOINT:
+        // Pega aquí tu URL de Google Apps Script publicada como aplicación web.
+        // =========================================================================
+        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyl6W0vHorV9Qtj69qzx0RLU1EX6sJ_aSKEIMUScQZ9qOiMjUNYjhAzfATEJLBW2i3K/exec";
+        // =========================================================================
+
+        let historyChart = null;
+        let refreshInterval = null;
+        let countdownInterval = null;
+        let secondsLeft = 60;
+
+        // UI Elements
+        const msgContainer = document.getElementById('message-container');
+        const msgTitle = document.getElementById('message-title');
+        const msgText = document.getElementById('message-text');
+        const dashboardContent = document.getElementById('dashboard-content');
+        const globalStatusBadge = document.getElementById('global-status');
+        const spinner = document.getElementById('refresh-spinner');
+
+        // Colors for statuses
+        const getColorForValue = (val) => {
+            if (val >= 90) return 'var(--status-critical)';
+            if (val >= 80) return 'var(--status-alert)';
+            return 'var(--status-ok)';
+        };
+
+        const getStatusClassAndText = (maxVal) => {
+            if (maxVal >= 90) return { cls: 'critical', text: 'Estado: CRÍTICO' };
+            if (maxVal >= 80) return { cls: 'alert', text: 'Estado: ALERTA' };
+            return { cls: 'ok', text: 'Estado: OK' };
+        };
+
+        // Utility to parse metrics like "67%", "4.3 us%" to float numbers
+        const parseMetric = (str) => {
+            if (str === null || str === undefined) return 0;
+            // Remove everything except digits and dots
+            const num = parseFloat(String(str).replace(/[^0-9.]/g, ''));
+            return isNaN(num) ? 0 : num;
+        };
+
+        const showMessage = (title, text, isError = false) => {
+            msgContainer.style.display = 'block';
+            msgContainer.className = isError ? 'message-banner error' : 'message-banner';
+            msgTitle.textContent = title;
+            msgText.textContent = text;
+            dashboardContent.style.display = 'none';
+            globalStatusBadge.style.display = 'none';
+        };
+
+        const hideMessage = () => {
+            msgContainer.style.display = 'none';
+            dashboardContent.style.display = 'block';
+            globalStatusBadge.style.display = 'flex';
+        };
+
+        const updateKPIs = (latest) => {
+            const cpuVal = parseMetric(latest.CPU);
+            const ramVal = parseMetric(latest.RAM);
+            const diskVal = parseMetric(latest.Disco);
+
+            document.getElementById('kpi-server').textContent = latest.Servidor || '--';
+
+            // Format date nicely
+            let dateStr = latest.Fecha || '--';
+            try {
+                const d = new Date(latest.Fecha);
+                if (!isNaN(d)) dateStr = d.toLocaleString();
+            } catch (e) { }
+            document.getElementById('kpi-date').textContent = 'Última lectura: ' + dateStr;
+
+            // Display original strings in the big numbers (e.g. "67%")
+            document.getElementById('kpi-cpu').textContent = latest.CPU || '0%';
+            document.getElementById('kpi-ram').textContent = latest.RAM || '0%';
+            document.getElementById('kpi-disk').textContent = latest.Disco || '0%';
+            document.getElementById('kpi-uptime').textContent = latest.Uptime || '--';
+
+            // Visual Progress Bars
+            document.getElementById('bar-cpu').style.width = Math.min(cpuVal, 100) + '%';
+            document.getElementById('bar-cpu').style.backgroundColor = getColorForValue(cpuVal);
+
+            document.getElementById('bar-ram').style.width = Math.min(ramVal, 100) + '%';
+            document.getElementById('bar-ram').style.backgroundColor = getColorForValue(ramVal);
+
+            document.getElementById('bar-disk').style.width = Math.min(diskVal, 100) + '%';
+            document.getElementById('bar-disk').style.backgroundColor = getColorForValue(diskVal);
+
+            // Global Status Evaluation
+            const maxMetric = Math.max(cpuVal, ramVal, diskVal);
+            const statusNode = document.getElementById('global-status');
+            const statusTextNode = document.getElementById('global-status-text');
+
+            const statusInfo = getStatusClassAndText(maxMetric);
+            statusNode.className = 'status-badge ' + statusInfo.cls;
+            statusTextNode.textContent = statusInfo.text;
+        };
+
+        const updateTable = (data) => {
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = '';
+
+            data.forEach(row => {
+                const tr = document.createElement('tr');
+
+                let dateStr = row.Fecha;
+                try {
+                    const d = new Date(row.Fecha);
+                    if (!isNaN(d)) dateStr = d.toLocaleString();
+                } catch (e) { }
+
+                // Keep original text format from row
+                tr.innerHTML = `
+                    <td>${dateStr || '--'}</td>
+                    <td><strong>${row.Servidor || '--'}</strong></td>
+                    <td>${row.CPU || '--'}</td>
+                    <td>${row.RAM || '--'}</td>
+                    <td>${row.Disco || '--'}</td>
+                    <td><span style="color: var(--text-muted);">${row.Uptime || '--'}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        };
+
+        const updateChart = (data) => {
+            // Chart.js requires oldest data first for proper time flow (left to right)
+            const chartData = [...data].reverse();
+
+            const labels = chartData.map(d => {
+                try {
+                    const date = new Date(d.Fecha);
+                    if (!isNaN(date)) {
+                        // Extract time (HH:MM)
+                        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    }
+                } catch (e) { }
+                return d.Fecha;
+            });
+
+            const cpuData = chartData.map(d => parseMetric(d.CPU));
+            const ramData = chartData.map(d => parseMetric(d.RAM));
+            const diskData = chartData.map(d => parseMetric(d.Disco));
+
+            if (historyChart) {
+                historyChart.data.labels = labels;
+                historyChart.data.datasets[0].data = cpuData;
+                historyChart.data.datasets[1].data = ramData;
+                historyChart.data.datasets[2].data = diskData;
+                historyChart.update();
+            } else {
+                const ctx = document.getElementById('historyChart').getContext('2d');
+                historyChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'CPU %',
+                                data: cpuData,
+                                borderColor: '#3b82f6',
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                borderWidth: 2,
+                                tension: 0.4,
+                                fill: true,
+                                pointRadius: 3,
+                                pointBackgroundColor: '#0f172a'
+                            },
+                            {
+                                label: 'RAM %',
+                                data: ramData,
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                borderWidth: 2,
+                                tension: 0.4,
+                                fill: true,
+                                pointRadius: 3,
+                                pointBackgroundColor: '#0f172a'
+                            },
+                            {
+                                label: 'Disco %',
+                                data: diskData,
+                                borderColor: '#f59e0b',
+                                backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                                borderWidth: 2,
+                                tension: 0.4,
+                                fill: true,
+                                pointRadius: 3,
+                                pointBackgroundColor: '#0f172a'
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        plugins: {
+                            legend: {
+                                labels: {
+                                    color: '#f8fafc',
+                                    usePointStyle: true,
+                                    padding: 20,
+                                    font: { family: "'Inter', sans-serif" }
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                                titleColor: '#f8fafc',
+                                bodyColor: '#94a3b8',
+                                padding: 12,
+                                borderColor: '#334155',
+                                borderWidth: 1
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 100,
+                                grid: { color: 'rgba(255,255,255,0.05)', drawBorder: false },
+                                ticks: {
+                                    color: '#94a3b8',
+                                    callback: function (value) { return value + '%' }
+                                }
+                            },
+                            x: {
+                                grid: { color: 'rgba(255,255,255,0.05)', drawBorder: false },
+                                ticks: { color: '#94a3b8', maxTicksLimit: 12 }
+                            }
+                        }
+                    }
+                });
+            }
+        };
+
+        const fetchData = async () => {
+            spinner.classList.add('spinning');
+            try {
+                const response = await fetch(WEB_APP_URL);
+                if (!response.ok) throw new Error('Error al conectar con el servidor HTTP HTTP ' + response.status);
+
+                const data = await response.json();
+
+                if (!data || !Array.isArray(data) || data.length === 0) {
+                    showMessage('Sin datos recientes', 'El endpoint no ha devuelto información para mostrar.');
+                    spinner.classList.remove('spinning');
+                    return;
+                }
+
+                // Sort by date descending (Newest first)
+                data.sort((a, b) => new Date(b.Fecha) - new Date(a.Fecha));
+
+                hideMessage();
+
+                // The newest record is considered the CURRENT status
+                const latestRecord = data[0];
+                updateKPIs(latestRecord);
+
+                // Table and Chart updates
+                updateTable(data);
+                updateChart(data);
+
+            } catch (error) {
+                console.error('Fetch error:', error);
+                showMessage('Fallo de conexión', 'No se pudo conectar al endpoint. Verifique la URL y su conexión a internet.', true);
+            }
+
+            spinner.classList.remove('spinning');
+            resetCountdown();
+        };
+
+        const resetCountdown = () => {
+            secondsLeft = 60;
+            document.getElementById('countdown').textContent = secondsLeft;
+        };
+
+        const startTimers = () => {
+            fetchData();
+
+            // Auto refresh
+            refreshInterval = setInterval(fetchData, 60000);
+
+            // Countdown tick
+            countdownInterval = setInterval(() => {
+                secondsLeft--;
+                if (secondsLeft < 0) secondsLeft = 0;
+                document.getElementById('countdown').textContent = secondsLeft;
+            }, 1000);
+        };
+
+        // Initialize application
+        showMessage('Estableciendo conexión...', 'Obteniendo las métricas más recientes del servidor.');
+        startTimers();
+    </script>
+</body>
+
+</html>
